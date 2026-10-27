@@ -12,8 +12,7 @@ Demultiplexing should be done using standard Porechop commands or other appropri
 # Table of Content
 * [Requirements](#requirements)
    * [Operating System version](#operating-system-version)
-   * [SeqAn 2.4 and zlib 1.2](#seqan-24-and-zlib-12)
-   * [Compiler and C++17](compiler-and-c17)
+   * [Rust (only to build from source)](#rust-only-to-build-from-source)
    * [Python version](#python-version)
    * [Networkx](#networkx)
 * [Installation](#installation)
@@ -30,37 +29,27 @@ Demultiplexing should be done using standard Porechop commands or other appropri
 
 ## Requirements 
 
-If you want to install Porechop_ABI, your system must satisfy some requirements. Porechop_ABI is written in Python and  C++. It uses two C++ libraries: SeqAn for sequence alignment and approximate k-mer processing, networkX for graph assembly.
+If you want to install Porechop_ABI, your system must satisfy some requirements. Porechop_ABI is written in Python and Rust. The Rust part (the `porechop_abi._native` extension module, sources in `rust/`) does the sequence alignment, the approximate k-mer counting and the multiple alignment consensus; networkX is used for graph assembly.
 In the case you chose to install using Conda, you can ignore this section (except the [OS](operating_system_version) requirement) and just use an up-to-date version of conda to install Porechop_ABI.
 Check the [installation](INSTALL.md) guide for more details.
 
 
 ### Operating System version
  
-* Linux, any version with compatible python and compiler requirements should work. 
+* Linux, any version with compatible python requirements should work. 
 * Mac OS >= 10.12.
 
 
-### SeqAn 2.4 and zlib 1.2
-SeqAn 2.4 and zlib 1.2 are required libraries for Porechop_ABI to compile properly.
-Both are embeded in this repository, and should be automatically linked during compilation.<br>
+### Rust (only to build from source)
+Building from source compiles the extension module, which requires a Rust toolchain, version 1.85 or later (install it with [rustup](https://rustup.rs), check with `cargo --version`).
+No C++ compiler, SeqAn or zlib is needed. A built wheel contains the compiled module and needs no Rust to install.
 
-* Porechop_ABI updated the already embeded SeqAn library used by Porechop to version 2.4 (previously 2.3). This led to some changes in the requirements.
-* To match existing Porechop ability to open compressed files, zlib 1.2 was added to the `include` folder.
-
-
-### Compiler and C++17
-Because of some specific features integrated in SeqAn 2.4 and modifications required to keep mac OS support, your compiler must be able to work with C++17.
-
-* If you are using [GCC](https://gcc.gnu.org/), version 8 or later is required (check with `g++ --version`).
-* Recent versions of [Clang](http://clang.llvm.org/)(>=5.0.0) and [ICC](https://software.intel.com/en-us/c-compilers) should also work.
-
-If for some reason you are interested in a C++14 compatible release, please open an issue here. Such install *should be* possible with additionnal work.
+It reproduces the results of the former C++ components (SeqAn 2.4 alignment, `approx_counter` and `msa_consensus`) exactly, and is much faster.
 
 
 ### Python Version
 Porechop is written mainly in Python3.
-Python version must be 3.6 or above.<br>
+Python version must be 3.8 or above.<br>
 
 With [X] being the version of python you want to install:
 
@@ -174,6 +163,14 @@ Path to a writable temporary directory, used to store count file and temporary f
 The provided directory will be created if it does not exists, if the path is writable.
 By default, Porechop_ABI creates a ./tmp/ folder in the working directory (where the command is launched).
 
+#### Random seed
+
+```bash
+--seed [integer]
+```
+Seed for the random sampling of reads in the ab initio phase. Two runs with the same seed and the same input give the same result.
+By default, the sampling is random.
+
 #### Custom adapters
 
 ```bash
@@ -280,7 +277,7 @@ Only select the best x consensus sequences from all consensus found. Default: 0,
 As seen before, some advanced options 
 are accessible in the config file located at /Porechop_ABI/porechop/ab_initio.config. Note that default values work just fine in practice, and it is most likely that you will not need to edit this file.
 
-If you installed Porechop using the setup.py script, take note that the actual config file used when using porechop from command line will be the one stored in your installation folder (example: /usr/local/lib/python3.__X__/dist-packages/porechop/porechop/ab_initio.config).
+If you installed Porechop_ABI with pip, take note that the actual config file used when using porechop from command line will be the one stored in your installation folder (example: /usr/local/lib/python3.__X__/dist-packages/porechop/porechop/ab_initio.config).
 
 In the case you still want to use custom options, it is recommanded to pass a config file as a parameter to Porechop_ABI using -abc / --ab_initio_config instead of editing the default config.
 

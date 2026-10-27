@@ -22,7 +22,6 @@ import sys
 import subprocess
 import shutil
 import re
-from multiprocessing.dummy import Pool as ThreadPool
 from collections import defaultdict
 from .misc import load_fasta_or_fastq, print_table, red
 from .misc import bold_underline, int_to_str
@@ -32,6 +31,10 @@ from .nanopore_read import NanoporeRead
 from .abinitio import launch_ab_initio
 from .arg_parser import get_arguments
 from .parse_adapter_file import *
+from .cpp_function_wrappers import align_regions, find_middle_hits
+
+# Reads per batch of native alignments (bounds the memory held by precomputed results).
+NATIVE_CHUNK = 10000
 
 
 def main():
@@ -204,32 +207,21 @@ def find_matching_adapter_sets(check_reads, verbosity, end_size, scoring_scheme_
     search_adapters = [a for a in ADAPTERS if '(full sequence)' not in a.name]
     search_adapter_count = len(search_adapters)
 
-    # If single-threaded, do the work in a simple loop.
-    if threads == 1:
-        for read_num, read in enumerate(check_reads):
-            for adapter_set in search_adapters:
-                read.align_adapter_set(
-                    adapter_set, end_size, scoring_scheme_vals)
-            if verbosity > 0:
-                output_progress_line(read_num+1, read_count, print_dest)
-
-    # If multi-threaded, use a thread pool.
-    else:
-        def align_adapter_set_one_arg(all_args):
-            r, a, b, c = all_args
-            r.align_adapter_set(a, b, c)
-        with ThreadPool(threads) as pool:
-            arg_list = []
-            for read in check_reads:
-                for adapter_set in search_adapters:
-                    arg_list.append(
-                        (read, adapter_set, end_size, scoring_scheme_vals))
-            finished_count = 0
-            for _ in pool.imap(align_adapter_set_one_arg, arg_list):
-                finished_count += 1
-                if verbosity > 0 and finished_count % search_adapter_count == 0:
-                    output_progress_line(finished_count // search_adapter_count,
-                                         read_count, print_dest)
+    # All alignments are done natively (in parallel), then applied read by read.
+    start_hits = align_regions([read.seq[:end_size] for read in check_reads],
+                               [x.start_sequence[1] if x.start_sequence else None
+                                for x in search_adapters],
+                               scoring_scheme_vals, threads)
+    end_hits = align_regions([read.seq[-end_size:] for read in check_reads],
+                             [x.end_sequence[1] if x.end_sequence else None
+                              for x in search_adapters],
+                             scoring_scheme_vals, threads)
+    for read_num, read in enumerate(check_reads):
+        for i, adapter_set in enumerate(search_adapters):
+            read.align_adapter_set(adapter_set, end_size, scoring_scheme_vals,
+                                   start_hits[read_num][i], end_hits[read_num][i])
+        if verbosity > 0:
+            output_progress_line(read_num+1, read_count, print_dest)
 
     if verbosity > 0:
         output_progress_line(read_count, read_count,
@@ -373,56 +365,33 @@ def find_adapters_at_read_ends(reads, matching_sets, verbosity, end_size, extra_
     if verbosity == 1:
         output_progress_line(0, read_count, print_dest)
 
-    # If single-threaded, do the work in a simple loop.
-    if threads == 1:
-        for read_num, read in enumerate(reads):
+    # Alignments are done natively (in parallel) for a chunk of reads, then applied read by read.
+    start_adapters = [x.start_sequence[1] if x.start_sequence else None for x in matching_sets]
+    end_adapters = [x.end_sequence[1] if x.end_sequence else None for x in matching_sets]
+    for chunk_start in range(0, read_count, NATIVE_CHUNK):
+        chunk = reads[chunk_start:chunk_start + NATIVE_CHUNK]
+        start_hits = align_regions([read.seq[:end_size] for read in chunk], start_adapters,
+                                   scoring_scheme_vals, threads)
+        end_hits = align_regions([read.seq[-end_size:] for read in chunk], end_adapters,
+                                 scoring_scheme_vals, threads)
+        for i, read in enumerate(chunk):
             read.find_start_trim(matching_sets, end_size, extra_trim_size, end_threshold,
                                  scoring_scheme_vals, min_trim_size, check_barcodes,
-                                 forward_or_reverse_barcodes)
+                                 forward_or_reverse_barcodes, start_hits[i])
             read.find_end_trim(matching_sets, end_size, extra_trim_size, end_threshold,
                                scoring_scheme_vals, min_trim_size, check_barcodes,
-                               forward_or_reverse_barcodes)
+                               forward_or_reverse_barcodes, end_hits[i])
             if check_barcodes:
                 read.determine_barcode(
                     barcode_threshold, barcode_diff, require_two_barcodes)
             if verbosity == 1:
-                output_progress_line(read_num+1, read_count, print_dest)
+                output_progress_line(chunk_start+i+1, read_count, print_dest)
             elif verbosity == 2:
                 print(read.formatted_start_and_end_seq(end_size, extra_trim_size, check_barcodes),
                       file=print_dest)
             elif verbosity > 2:
                 print(read.full_start_end_output(end_size, extra_trim_size, check_barcodes),
                       file=print_dest)
-
-    # If multi-threaded, use a thread pool.
-    else:
-        def start_end_trim_one_arg(all_args):
-            r, a, b, c, d, e, f, g, h, i, j, k, v = all_args
-            r.find_start_trim(a, b, c, d, e, f, g, k)
-            r.find_end_trim(a, b, c, d, e, f, g, k)
-            if check_barcodes:
-                r.determine_barcode(h, i, j)
-            if v == 2:
-                return r.formatted_start_and_end_seq(b, c, g)
-            if v > 2:
-                return r.full_start_end_output(b, c, g)
-            else:
-                return ''
-        with ThreadPool(threads) as pool:
-            arg_list = []
-            for read in reads:
-                arg_list.append((read, matching_sets, end_size, extra_trim_size, end_threshold,
-                                 scoring_scheme_vals, min_trim_size, check_barcodes,
-                                 barcode_threshold, barcode_diff, require_two_barcodes,
-                                 forward_or_reverse_barcodes, verbosity))
-            finished_count = 0
-            for out in pool.imap(start_end_trim_one_arg, arg_list):
-                finished_count += 1
-                if verbosity == 1:
-                    output_progress_line(
-                        finished_count, read_count, print_dest)
-                elif verbosity > 1:
-                    print(out, file=print_dest, flush=True)
 
     if verbosity == 1:
         output_progress_line(read_count, read_count,
@@ -476,38 +445,23 @@ def find_adapters_in_read_middles(reads, matching_sets, verbosity, middle_thresh
     if verbosity == 1:
         output_progress_line(0, read_count, print_dest)
 
-    # If single-threaded, do the work in a simple loop.
-    if threads == 1:
-        for read_num, read in enumerate(reads):
+    # Alignments are done natively (in parallel) for a chunk of reads, then applied read by read.
+    adapter_seqs = [x[1] for x in adapters]
+    for chunk_start in range(0, read_count, NATIVE_CHUNK):
+        chunk = reads[chunk_start:chunk_start + NATIVE_CHUNK]
+        hits = find_middle_hits([read.get_seq_with_start_end_adapters_trimmed() for read in chunk],
+                                adapter_seqs, scoring_scheme_vals, middle_threshold, threads)
+        for i, read in enumerate(chunk):
             read.find_middle_adapters(adapters, middle_threshold, extra_trim_good_side,
                                       extra_trim_bad_side, scoring_scheme_vals,
-                                      start_sequence_names, end_sequence_names)
+                                      start_sequence_names, end_sequence_names, hits[i])
             if verbosity == 1:
-                output_progress_line(read_num+1, read_count, print_dest)
+                # The original's thread pool loop reported one read ahead.
+                done = chunk_start + i + 1
+                output_progress_line(done if threads == 1 else done + 1, read_count, print_dest)
             if read.middle_adapter_positions and verbosity > 1:
                 print(read.middle_adapter_results(
                     verbosity), file=print_dest, flush=True)
-
-    # If multi-threaded, use a thread pool.
-    else:
-        def find_middle_adapters_one_arg(all_args):
-            r, a, b, c, d, e, f, g, v = all_args
-            r.find_middle_adapters(a, b, c, d, e, f, g)
-            return r.middle_adapter_results(v)
-        with ThreadPool(threads) as pool:
-            arg_list = []
-            for read in reads:
-                arg_list.append((read, adapters, middle_threshold, extra_trim_good_side,
-                                 extra_trim_bad_side, scoring_scheme_vals, start_sequence_names,
-                                 end_sequence_names, verbosity))
-            finished_count = 0
-            for out in pool.imap(find_middle_adapters_one_arg, arg_list):
-                finished_count += 1
-                if verbosity == 1:
-                    output_progress_line(
-                        finished_count + 1, read_count, print_dest)
-                if verbosity > 1 and out:
-                    print(out, file=print_dest, flush=True)
 
     if verbosity == 1:
         output_progress_line(read_count, read_count,

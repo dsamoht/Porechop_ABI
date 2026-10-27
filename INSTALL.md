@@ -2,7 +2,7 @@
 
 Porechop_ABI can be installed using several methods, that can be separated in two categories:
 * Using package managers such as Conda or Pip.
-* Installing from sources using scripts or make.
+* Installing from sources with pip or maturin.
 
 Except for conda installation, all requirements described in [README](README.md) must be satisfied before install.
 
@@ -11,7 +11,7 @@ Except for conda installation, all requirements described in [README](README.md)
 * [Install with Conda](#install-with-conda)
 * [Fetching source code](#fetching-source-code)
 * [Install with PIP](#install-with-pip)
-* [Install from sources](#install-from-sources)
+* [Build a wheel](#build-a-wheel)
 * [Build and run without installation](#build-and-run-without-installation)
 * [Troubleshooting](#troubleshooting)
 
@@ -58,55 +58,40 @@ cd Porechop_ABI
 
 ## Install with pip
 If you are not using Conda but have pip installed, we recommand using pip to install Porechop_ABI, as it is the second easiest way.
+Building from source requires a Rust toolchain (>= 1.85, see [rustup](https://rustup.rs)); pip compiles the extension module automatically.
 
 In the Porechop_ABI folder, use pip as a python module.
 ```bash
 python3.[X] -m pip install .
 porechop_abi -h
 ```
-Be sure the python version match the requirement (>= 3.6 and networkx installed)
+Be sure the python version match the requirement (>= 3.8 and networkx installed)
 
 
-## Install from sources
-You can also run the `setup.py` script yourself. It will compile the C++ components of Porechop_ABI and install a `porechop_abi` executable on your system.
-Depending on your permissions, you can install porechop_abi systemwide (root / sudo most likely  required), or for yourself only.
-
-After cloning the repository:
-
-* System wide install
+## Build a wheel
+To install on machines without Rust, build a wheel once with [maturin](https://www.maturin.rs) and install it with pip:
 ```bash
-python3.[x] setup.py install
-porechop_abi -h
+python3.[X] -m pip install maturin
+maturin build --release        # wheel written to rust/target/wheels/
+python3.[X] -m pip install rust/target/wheels/porechop_abi-*.whl
 ```
-
-* Local (user) install
-```bash
-python3.[x] setup.py install --user
-porechop_abi -h
-```
+The wheel uses the stable Python ABI, so one wheel per platform works with every Python version >= 3.8.
 
 
 ## Build and run without installation
 
-By simply running `make` in Porechop_ABI's directory, you can compile the C++ components but not install an executable. The program can then be executed by calling the `porechop-abi-runner.py` script.
+`maturin develop` compiles the extension module into the `porechop_abi` folder (it needs an active virtual environment). The program can then be executed by calling the `porechop-abi-runner.py` script.
 
 ```bash
 cd Porechop_ABI
-make release
+python3.[X] -m venv .venv && . .venv/bin/activate
+pip install maturin networkx
+maturin develop --release
 ./porechop-abi-runner.py -h
 ```
 
 
 ## Troubleshooting
-* When installing from sources, you may in some cases get a "could not find cpp_function.so" or similar error. If that happens, you need to manually add execution permission to the impacted compiled objects.
-`chmod +x <your_install folder>/<files that are "not found">`
-
-* For user install (from sources), if you get a strange "can't combine user with prefix" error, read [this](http://stackoverflow.com/questions/4495120).
-
-* You may want / need to install Porechop_ABI to a specific location. You can specify the installation path using --prefix:  `python3 setup.py install --prefix=$HOME/.local`
-
-* If you'd like to specify which compiler to use, set the `CXX` environnemnt variable before installation. Ex: `export CXX=g++-6`
-
-* Porechop includes `ez_setup.py` for users who don't have [setuptools](https://pypi.python.org/pypi/setuptools) installed, though that script is [deprecated](https://github.com/pypa/setuptools/issues/581). So if you run into any installation problems, make sure setuptools is installed on your computer: `python3.[x] -m pip install setuptools`
+* If pip reports that `cargo` or `rustc` cannot be found, install Rust with [rustup](https://rustup.rs) and open a new shell, or install a prebuilt wheel.
 
 * If you have already the original Porechop installed, Porechop_ABI *will not* replace it. Despite having the same abilities, Porechop_ABI is a different software. It must be run using the `porechop_abi` command, and not just `porechop`.

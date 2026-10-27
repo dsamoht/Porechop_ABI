@@ -27,6 +27,7 @@ import sys
 import os
 from collections import defaultdict as dd
 import subprocess
+from .cpp_function_wrappers import compatibility_matrix, msa_consensus
 
 
 # Best consensus has to be above 30% or it will trigger a warning
@@ -71,33 +72,7 @@ def get_compatibles(mat):
 
 def all_vs_all_matrix(sequences):
     """Build the distance matrix using the 'compatibility' algorithm."""
-    from ctypes import CDLL, c_char_p, c_int
-    # Gettign path and handle to the library
-    prog = "compatibility.so"
-    prog_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), prog)
-    compatiblity = CDLL(prog_path)
-
-    # compatibility function definition
-    compatiblity.check_compatibility.argtypes = [c_char_p,
-                                                 c_char_p]
-    compatiblity.check_compatibility.restype = c_int       # Compatibility flag
-    size = len(sequences)
-    # matrix init
-    mat = [[-1] * size for _ in range(size)]
-    # computing half the matrix (but filling both sides)
-    for i, seq1 in enumerate(sequences):
-        l1 = len(seq1)
-        tmp = []
-        for j in range(i+1, size):
-            if(i != j):
-                seq2 = sequences[j]
-                l2 = len(seq2)
-                s1 = seq1.encode('utf-8')
-                s2 = seq2.encode('utf-8')
-                flag = compatiblity.check_compatibility(s1, s2)
-                mat[i][j] = flag
-                mat[j][i] = flag
-    return(mat)
+    return(compatibility_matrix(sequences))
 
 
 def pool_methods(adapters, name):
@@ -126,24 +101,17 @@ def merge_adapter_set(adp1, adp2):
 
 
 def seqan_msa_consensus(sequences, tmp_dir, end, adp_count):
-    tmp_fasta = os.path.join(tmp_dir, "tmp.fasta")
-    with open(tmp_fasta, "w") as out:
-        printed_seq = 0
-        methods = adp_count[end].keys()
-        for seq in sequences:
-            # get the number of time it should be repeated
-            nb_time = 0
-            for meth in methods:
-                if(seq in adp_count[end][meth].keys()):
-                    nb_time += adp_count[end][meth][seq]
-            # exporting nb_times te sequence in fasta format
-            for _ in range(nb_time):
-                out.write(f">Sequence_{printed_seq}\n{seq}\n")
-                printed_seq += 1
-    # Searching path to consensus maker
-    result = run_subprocess("msa_consensus", [tmp_fasta])
-    os.remove(tmp_fasta)
-    return(result)
+    weighted = []
+    methods = adp_count[end].keys()
+    for seq in sequences:
+        # get the number of time it should be repeated
+        nb_time = 0
+        for meth in methods:
+            if(seq in adp_count[end][meth].keys()):
+                nb_time += adp_count[end][meth][seq]
+        weighted.append((seq, nb_time))
+    # Same output as the msa_consensus program on the sequences repeated nb_time times
+    return(msa_consensus(weighted))
 
 
 def export_as_fasta(seq, filename):

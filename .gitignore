@@ -5,9 +5,8 @@
 *.so
 *.o
 
-# Compiled cpp programs
-porechop/approx_counter
-porechop/msa_consensus
+# Rust build output
+rust/target/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

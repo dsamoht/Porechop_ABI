@@ -83,6 +83,9 @@ def get_arguments():
                            help='Path to a writable temporary directory. '
                            'Directory will be created if it does not exists. '
                            'Default is ./tmp')
+    abi_group.add_argument('--seed', type=int,
+                           help='Seed for the ab initio read sampling, to make '
+                           'runs reproducible (default: random)')
     abi_group.add_argument('-cap', '--custom_adapters', type=str,
                            help='Path to a custom adapter text file, '
                                 'if you want to manually submit some.')
@@ -262,9 +265,8 @@ def get_arguments():
               " datasets.\n Adapter inference may not work as expected.",
               file=sys.stderr)
         print("#"*60, file=sys.stderr)
-        print("Please avoid using -b and -abi at the same time.\n"
-              "Press return/enter key to continue.")
-        input()
+        print("Please avoid using -b and -abi at the same time.",
+              file=sys.stderr)
 
     if args.threads < 1:
         sys.exit('Error: at least one thread required')

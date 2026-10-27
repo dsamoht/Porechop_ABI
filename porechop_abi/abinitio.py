@@ -35,6 +35,7 @@ import sys
 from .arg_parser import get_arguments
 from .drop_cut import *
 from .consensus import *
+from .cpp_function_wrappers import approx_counter
 from math import inf
 
 ##############################################################################
@@ -388,8 +389,8 @@ def build_graph(count_file):
 
 
 def execApproxCounter(args, out_file, conf_file, mr, v, print_dest=sys.stderr):
-    """ Prepare command and execute the approximate k-mer counting
-    program using subprocess.
+    """ Execute the approximate k-mer counting (in-process, same output
+    files as the approx_counter program).
     @param args: The arguments passed to Porechop (argparse arguments)
     @param out_file : The prefix for the k-mer count output file.
     @param mr : number of run to perform (for multi run). default is 1 (int)
@@ -402,46 +403,24 @@ def execApproxCounter(args, out_file, conf_file, mr, v, print_dest=sys.stderr):
     ________________________________________________________________________
     """
 
-    # Searching path to approx_counter
-    prog_path = os.path.join(os.path.dirname(
-        os.path.realpath(__file__)), "approx_counter")
-
-    # Input filename
-    fasta_file = args.input
-
     # TODO: Manage number of threads in a better way.
-    nb_thread = str(min(args.threads, cpu_count()))
-
-    # Building command line for approx_counter
-    command = prog_path + " " + fasta_file + \
-        f" -v {v}" + \
-        f" --config {conf_file}" + \
-        f" -o {out_file}" + \
-        f" -nt {nb_thread}"
-
-    # If multi run, add mr flag to command line
-    if(mr > 1):
-        command += f" -mr {mr}"
+    nb_thread = min(args.threads, cpu_count())
 
     if(v > 0):
         print("Using config file:" + conf_file, file=print_dest)
-        print("Command line:\n", command,
-              file=print_dest)
 
-    # Finally, Running subprocess to count the k-mers
-    try:
-        subprocess.check_call(command.split())
-    except SystemError as e:
-        print("\n#####################################",
-              file=sys.stderr)
-        print("ERROR: approximate k-mer count failed\n" + e,
-              file=sys.stderr)
-        print("#####################################\n",
-              file=sys.stderr)
-        sys.exit(1)
+    # Counting in-process (same output files as the approx_counter program)
+    print_dest.flush()
+    sys.stdout.flush()
+    seed = getattr(args, "seed", None)
+    if(seed is not None):
+        # Each batch gets its own stream, so the "_sup" batch differs from the first one.
+        seed += out_file.count("_sup")
+    approx_counter(args.input, conf_file, out_file, mr, v, nb_thread, seed)
 
 
-def generic_build(method_fct, name, g, adapters, which_end, v, w, print_dest):
+def generic_build(method_fct, name, g, adapters, which_end, v, w, print_dest,
+                  drop_cut=True):
     """Generic function used to build adapter from a path in the graph g.
     This function need a path building function (which returns a list of
     consecutive overlapping k-mers). The resulting adapter is then
@@ -473,7 +452,9 @@ def generic_build(method_fct, name, g, adapters, which_end, v, w, print_dest):
 
     else:
         cut_method_p = []
-        if(which_end == "start"):
+        if(not drop_cut):
+            cut_method_p = method_p
+        elif(which_end == "start"):
             cut_method_p = start_cut(method_p, g, w)
         elif(which_end == "end"):
             cut_method_p = end_cut(method_p, g, w)
@@ -557,7 +538,8 @@ def build_adapter(args, out_filename, nb_reads, v, print_dest):
                           which_end,
                           v,
                           w,
-                          print_dest)
+                          print_dest,
+                          not args.no_drop_cut)
             # Heavy adapter
             generic_build(heavy_path, "heavy",
                           g,
@@ -565,18 +547,18 @@ def build_adapter(args, out_filename, nb_reads, v, print_dest):
                           which_end,
                           v,
                           w,
-                          print_dest)
+                          print_dest,
+                          not args.no_drop_cut)
 
             # Exporting graph, if required
             if(args.export_graph is not None):
                 if(v >= 1):
                     print("\tExporting assembly graph", file=print_dest)
-                base = "_adapter_graph"
+                base = "_adapter_graph.graphml"
                 if(".graphml" in args.export_graph):
                     base = "_" + os.path.basename(args.export_graph)
-                else:
-                    path = os.path.join(os.path.dirname(
-                        args.export_graph), which_end + base + ".graphml")
+                path = os.path.join(os.path.dirname(
+                    args.export_graph), which_end + base)
 
                 nx.write_graphml(g, path)
         else:

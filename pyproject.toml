@@ -1,0 +1,27 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "Porechop_ABI"
+dynamic = ["version"]
+description = "Porechop_ABI"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.8"
+dependencies = ["networkx"]
+authors = [{ name = "Quentin Bonenfant", email = "quentin.bonenfant@gmail.com" }]
+
+[project.urls]
+Homepage = "https://github.com/bonsai-team/Porechop_ABI"
+
+[project.scripts]
+porechop_abi = "porechop_abi.porechop_abi:main"
+
+[tool.maturin]
+manifest-path = "rust/Cargo.toml"
+module-name = "porechop_abi._native"
+python-source = "."
+python-packages = ["porechop_abi"]
+include = [{ path = "porechop_abi/ab_initio.config", format = ["sdist", "wheel"] }]
+exclude = ["test/**"]

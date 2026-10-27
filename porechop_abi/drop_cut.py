@@ -95,7 +95,8 @@ def sliding_median(counts, w=7):
         end = min(i + offset, lc)
         # getting on middle position
         med_rng = counts[start: end]
-        results.append(median(med_rng))
+        # An empty window (window size 1) means no smoothing.
+        results.append(median(med_rng) if med_rng else counts[i])
     return(results)
 
 
