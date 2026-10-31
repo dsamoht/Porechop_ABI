@@ -1,0 +1,48 @@
+name: parity
+
+on:
+  push:
+    branches: [parity-ci]
+  workflow_dispatch:
+
+jobs:
+  parity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: rust
+      - uses: actions/checkout@v4
+        with:
+          repository: bonsai-team/Porechop_ABI
+          ref: 0bc9f17f31d4ec1dcbab4796871cc09324cc143b
+          path: upstream
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.90.0
+      - uses: actions/cache@v4
+        with:
+          path: data
+          key: ena-parity-v1
+      - name: Parity runs
+        run: bash rust/.github/parity/run.sh
+      - name: Summary
+        if: always()
+        run: |
+          { echo '```'; cat runs/results.tsv; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parity-${{ matrix.os }}
+          path: |
+            runs/**/*.txt
+            runs/**/*.log
+            runs/results.tsv
